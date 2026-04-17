@@ -42,5 +42,5 @@ Un clásico juego de Tetris implementado en **C89 estricto** para el procesador 
 
 1. **Clonar el repositorio**:
 ```bash
-git clone https://github.com/TU_USUARIO/tetris-6502-sid.git
+git clone https://github.com/nelsama/tetris_4mon.git
 cd tetris-6502-sid
