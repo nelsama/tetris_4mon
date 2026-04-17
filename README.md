@@ -2,7 +2,7 @@
 
 Un clásico juego de Tetris implementado en **C89 estricto** para el procesador **6502** corriendo sobre el monitor para fpga tang nano 9k, con efectos de sonido generados por el chip **SID 6581**. Diseñado para ejecutarse en la FPGA **Tang Nano 9K** con monitor ROM personalizado.
 
-![Tetris Gameplay](screenshots/gameplay.png)
+![Tetris Gameplay](images/screen.png)
 
 ## ✨ Características
 
