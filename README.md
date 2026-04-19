@@ -16,7 +16,7 @@ Un clásico juego de Tetris implementado en **C89 estricto** para el procesador 
 ## 🛠️ Especificaciones Técnicas
 
 ### Hardware Objetivo
-- **CPU**: MOS 6502 @ 1MHz
+- **CPU**: MOS 6502 @ 3.375MHz
 - **Audio**: SID 6581 ($D400)
 - **Plataforma**: Tang Nano 9K FPGA
 - **Display**: Terminal ANSI compatible
