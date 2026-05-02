@@ -1,12 +1,12 @@
 /* ==========================================================================
-   TETRIS 6502 + SID 6581 - Versión Final Definitiva (C89 Strict)
+   TETRIS 6502 + SID 6581 - Version Final Definitiva (C89 Strict)
    
-   Características:
-   1. RNG 16-bit con entropía SID OSC3: Secuencias únicas por partida/reinicio.
+   Caracteristicas:
+   1. RNG 16-bit con entropia SID OSC3: Secuencias unicas por partida/reinicio.
    2. SRS Completo: Giro horario/anti-horario con tablas de kick oficiales.
-   3. Piezas Normalizadas: S, Z, T, J, L, I, O alineadas al borde izquierdo en TODAS las rotaciones.
-   4. Renderizado Optimizado: Columna 1 absoluta, borrado de línea \033[K, invalidación de buffer.
-   5. Audio SID: Jingle intro, SFX de caída/linea/gameover, semilla desde registro de ruido.
+   3. Piezas Normalizadas: S, Z, T, J, L, I, O.
+   4. Renderizado Optimizado: Bordes visibles, buffer con refresh periodico.
+   5. Audio SID: Jingle intro, SFX de caida/linea/gameover, semilla desde registro de ruido.
    
    Compilador: CC65 | Target: 6502 @ Tang Nano 9K
    ========================================================================== */
@@ -55,7 +55,7 @@ static const uint8_t COLORS[8] = {0, 96, 93, 95, 92, 91, 94, 97};
 #define N_E5 0x0F80
 
 /* ==========================================================================
-   VARIABLES GLOBALES (Declaradas ANTES de cualquier función)
+   VARIABLES GLOBALES
    ========================================================================== */
 static uint8_t board[H][W];
 static uint8_t prev[H][W];
@@ -64,23 +64,22 @@ static uint16_t score, level, lines_cleared;
 static uint16_t frame_cnt, drop_delay;
 static uint8_t esc_state;
 static uint16_t seed;
+static uint8_t force_refresh;
+static uint16_t prev_score;
+static uint16_t prev_lines;
+static uint8_t  prev_level;
 
 /* ==========================================================================
-   GENERADOR ALEATORIO (16-bit LCG + Entropía SID)
+   GENERADOR ALEATORIO (16-bit LCG + Entropia SID)
    ========================================================================== */
 static void init_random(void) {
     uint8_t r1, r2, r3;
-    /* Configurar Voz 3 para generar ruido real */
     SID_FREQ_LO_3 = 0x15; SID_FREQ_HI_3 = 0x2A; 
-    SID_CTRL_3 = 0x80; /* Noise Waveform, Gate Off */
-    
+    SID_CTRL_3 = 0x80;
     rom_delay_us(40); r1 = SID_OSC3;
     rom_delay_us(40); r2 = SID_OSC3;
     rom_delay_us(40); r3 = SID_OSC3;
-    
-    SID_CTRL_3 = 0x00; /* Apagar Voz 3 */
-    
-    /* Mezclar entropía SID con frame_cnt (varía según interacción usuario) */
+    SID_CTRL_3 = 0x00;
     seed = ((uint16_t)r1 << 8) | r2;
     seed ^= ((uint16_t)r3 << 8) | frame_cnt;
     if (seed == 0) seed = 0xACE1;
@@ -129,7 +128,6 @@ static void sid_off(void) { SID_CTRL_1 = 0x00; SID_CTRL_2 = 0x00; SID_VOL = 0x00
 /* ==========================================================================
    PIEZAS Y TABLAS SRS
    ========================================================================== */
-/* FIX: Todas las rotaciones empiezan en Bit 0 para tocar pared izquierda */
 static const uint8_t PIECES[7][4][4] = {
     /* I (Cyan)     */ {{0x00,0x0F,0x00,0x00},{0x01,0x01,0x01,0x01},{0x00,0x0F,0x00,0x00},{0x01,0x01,0x01,0x01}},
     /* O (Amarilla) */ {{0x03,0x03,0x00,0x00},{0x03,0x03,0x00,0x00},{0x03,0x03,0x00,0x00},{0x03,0x03,0x00,0x00}},
@@ -137,7 +135,7 @@ static const uint8_t PIECES[7][4][4] = {
     /* S (Verde)    */ {{0x06,0x03,0x00,0x00},{0x01,0x03,0x02,0x00},{0x06,0x03,0x00,0x00},{0x01,0x03,0x02,0x00}},
     /* Z (Roja)     */ {{0x03,0x06,0x00,0x00},{0x02,0x03,0x01,0x00},{0x03,0x06,0x00,0x00},{0x02,0x03,0x01,0x00}},
     /* J (Azul)     */ {{0x04,0x07,0x00,0x00},{0x03,0x02,0x02,0x00},{0x07,0x01,0x00,0x00},{0x01,0x01,0x03,0x00}},
-    /* L (Blanca)   */ {{0x01,0x07,0x00,0x00},{0x03,0x02,0x02,0x00},{0x07,0x04,0x00,0x00},{0x01,0x01,0x03,0x00}}
+    /* L (Blanca)   */ {{0x01,0x07,0x00,0x00},{0x03,0x01,0x01,0x00},{0x07,0x04,0x00,0x00},{0x02,0x02,0x03,0x00}}
 };
 
 /* SRS Clockwise Kicks */
@@ -182,17 +180,19 @@ static void uart_set_color(uint8_t id) {
 }
 static void uart_draw_line(uint8_t y) {
     uint8_t x, val;
-    uart_ansi_cursor(y + 1, 1); /* Columna 1 = Borde Izquierdo Absoluto */
+    uart_ansi_cursor(y + 1, 1);
+    rom_uart_puts("\033[0m|");
     for (x = 0; x < W; x++) {
         val = prev[y][x];
         uart_set_color(val);
         if (val) rom_uart_puts("[]"); else rom_uart_puts("  ");
     }
-    rom_uart_puts("\033[K");
+    rom_uart_puts("\033[0m|");
+    if (y >= 3) rom_uart_puts("\033[K");
 }
 
 /* ==========================================================================
-   LÓGICA DEL JUEGO
+   LOGICA DEL JUEGO
    ========================================================================== */
 static uint8_t can_place(uint8_t t, uint8_t r, uint8_t x, uint8_t y) {
     uint8_t ry, rx, row, by, bx;
@@ -225,13 +225,16 @@ static void lock_piece(void) {
 
 static uint8_t clear_lines(void) {
     uint8_t lines = 0, y, x, full, yy, xx;
-    for (y = H - 1; y != 0xFF; y--) {
+    y = H - 1;
+    while (y != 0xFF) {
         full = 1;
         for (x = 0; x < W; x++) if (!board[y][x]) { full = 0; break; }
         if (full) {
             lines++;
             for (yy = y; yy > 0; yy--) for (xx = 0; xx < W; xx++) board[yy][xx] = board[yy - 1][xx];
             for (xx = 0; xx < W; xx++) board[0][xx] = 0;
+        } else {
+            y--;
         }
     }
     if (lines) {
@@ -241,7 +244,6 @@ static uint8_t clear_lines(void) {
         drop_delay = 25 / level;
         if (drop_delay < 4) drop_delay = 4;
         sid_sfx(1);
-        /* Invalidar buffer para forzar redibujo completo */
         for (y = 0; y < H; y++) for (x = 0; x < W; x++) prev[y][x] = 0xFF;
     }
     return lines;
@@ -291,8 +293,6 @@ int main(void) {
 
     asm("cli");
     sid_init();
-    
-    /* Inicializar RNG con entropía SID */
     init_random();
     
     drop_delay = 25; frame_cnt = 0; esc_state = 0;
@@ -305,7 +305,8 @@ int main(void) {
 
 reset:
     score = 0; level = 1; lines_cleared = 0; drop_delay = 25; game_over = 0;
-    frame_cnt = 0;
+    frame_cnt = 0; force_refresh = 0;
+    prev_score = 0; prev_lines = 0; prev_level = 0;
     for (y = 0; y < H; y++) for (x = 0; x < W; x++) { board[y][x] = 0; prev[y][x] = 0xFF; }
     if (!spawn()) return 0;
 
@@ -328,7 +329,12 @@ reset:
             else { lock_piece(); clear_lines(); if (!spawn()) game_over = 1; }
         }
 
-        /* Renderizado */
+        force_refresh++;
+        if (force_refresh >= 30) {
+            force_refresh = 0;
+            for (y = 0; y < H; y++) for (x = 0; x < W; x++) prev[y][x] = 0xFF;
+        }
+
         for (y = 0; y < H; y++) {
             line_dirty = 0;
             for (x = 0; x < W; x++) {
@@ -342,28 +348,30 @@ reset:
             if (line_dirty) uart_draw_line(y);
         }
 
-        /* HUD */
-        uart_ansi_cursor(1, 26); rom_uart_puts("\033[0mSCORE: ");
-        { uint16_t s = score; rom_uart_putc('0' + (s / 10000)); s %= 10000;
-          rom_uart_putc('0' + (s / 1000)); s %= 1000; rom_uart_putc('0' + (s / 100)); s %= 100;
-          rom_uart_putc('0' + (s / 10)); s %= 10; rom_uart_putc('0' + s); }
-        uart_ansi_cursor(2, 26); rom_uart_puts("LINES:");
-        { uint16_t l = lines_cleared; rom_uart_putc('0' + (l / 1000)); l %= 1000;
-          rom_uart_putc('0' + (l / 100)); l %= 100; rom_uart_putc('0' + (l / 10)); l %= 10;
-          rom_uart_putc('0' + l); }
-        uart_ansi_cursor(3, 26); rom_uart_puts("LEVEL:");
-        rom_uart_putc('0' + level);
+        if (score != prev_score || lines_cleared != prev_lines || level != prev_level) {
+            prev_score = score; prev_lines = lines_cleared; prev_level = level;
+            uart_ansi_cursor(1, 28); rom_uart_puts("\033[0mSCORE:");
+            { uint16_t s = score; rom_uart_putc('0' + (s / 10000)); s %= 10000;
+              rom_uart_putc('0' + (s / 1000)); s %= 1000; rom_uart_putc('0' + (s / 100)); s %= 100;
+              rom_uart_putc('0' + (s / 10)); s %= 10; rom_uart_putc('0' + s); }
+            uart_ansi_cursor(2, 28); rom_uart_puts("LINES:");
+            { uint16_t l = lines_cleared; rom_uart_putc('0' + (l / 1000)); l %= 1000;
+              rom_uart_putc('0' + (l / 100)); l %= 100; rom_uart_putc('0' + (l / 10)); l %= 10;
+              rom_uart_putc('0' + l); }
+            uart_ansi_cursor(3, 28); rom_uart_puts("LEVEL:");
+            rom_uart_putc('0' + level);
+        }
         rom_delay_us(50);
     }
 
     sid_sfx(2);
-    uart_ansi_cursor(H / 2, 26); rom_uart_puts("\033[31;1m*** GAME OVER ***\033[0m");
-    uart_ansi_cursor(H / 2 + 2, 26); rom_uart_puts("Press [R]estart or [E]xit");
+    uart_ansi_cursor(H / 2, 28); rom_uart_puts("\033[31;1m** GAME OVER **\033[0m");
+    uart_ansi_cursor(H / 2 + 2, 28); rom_uart_puts("[R]estart  [E]xit");
     while (1) {
         if (!rom_uart_rx_ready()) continue;
         c = rom_uart_getc();
         if (c == 'r' || c == 'R') { 
-            init_random(); /* Nueva secuencia aleatoria al reiniciar */
+            init_random();
             rom_uart_puts("\033[2J\033[H"); 
             goto reset; 
         }
