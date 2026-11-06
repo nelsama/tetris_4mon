@@ -32,21 +32,29 @@
 # En Linux/Unix, OS no está definida (o vale otra cosa)
 # ============================================================
 ifeq ($(OS),Windows_NT)
-  # ── Windows (cmd / PowerShell) ──────────────────────────
-  RM_DIR    = rmdir /s /q
-  RM_FILE   = del /q
-  NULL_DEV  = nul
-  # Si make se ejecuta desde Git Bash / MSYS2 / Cygwin, su shell por defecto
-  # es /bin/sh y los comandos de Windows (if not exist, rmdir...) fallan con
-  # "syntax error: unexpected end of file from `if' command". En ese caso se
-  # fuerzan las recetas a cmd.exe. Un SHELL pasado por linea de comandos
-  # (make SHELL=...) tiene prioridad y evita esta deteccion.
-  ifeq ($(origin SHELL),default)
-    ifneq (,$(or $(MSYSTEM),$(findstring msys,$(shell uname -s 2>$(NULL_DEV))),$(findstring cygwin,$(shell uname -s 2>$(NULL_DEV))),$(wildcard /usr/bin/sh)))
+  # ── Windows ─────────────────────────────────────────────
+  # Git Bash define SHELL=/usr/bin/bash y make lo hereda del entorno, por lo
+  # que las recetas se lanzan con sh y fallan con:
+  #   /usr/bin/sh: -c: line 2: syntax error: unexpected end of file from `if'
+  # Por eso se elige el shell segun el entorno detectado, en vez de confiar en
+  # el valor heredado. Si el usuario pasa SHELL=... en la linea de comandos,
+  # ese tiene prioridad (origin = command line).
+  uname_s := $(shell uname -s 2>/dev/null)
+  ifneq ($(origin SHELL),command line)
+    ifneq (,$(or $(MSYSTEM),$(findstring msys,$(uname_s)),$(findstring cygwin,$(uname_s)),$(findstring mingw,$(uname_s))))
       SHELL = cmd.exe
     endif
   endif
   with_cmd := $(if $(filter %cmd.exe,$(SHELL)),1,)
+  ifeq ($(with_cmd),1)
+    RM_DIR    = rmdir /s /q
+    RM_FILE   = del /q
+    NULL_DEV  = nul
+  else
+    RM_DIR    = rm -rf
+    RM_FILE   = rm -f
+    NULL_DEV  = /dev/null
+  endif
 else
   # ── Linux / Unix / MinGW-MSYS ───────────────────────────
   RM_DIR    = rm -rf
@@ -130,13 +138,10 @@ all: dirs $(PROGRAM)
 	@echo ========================================
 
 # ── Crear directorios de salida ─────────────────────────
+# 'mkdir -p' sin mensajes: funciona en sh y en cmd, y no necesita IFEXIST
+# (mkdir en un directorio existente solo imprime aviso, que se descarta).
 dirs:
-ifeq ($(OS),Windows_NT)
-	@if not exist "$(BUILD_DIR)" mkdir "$(BUILD_DIR)"
-	@if not exist "$(OUTPUT_DIR)" mkdir "$(OUTPUT_DIR)"
-else
-	@mkdir -p $(BUILD_DIR) $(OUTPUT_DIR)
-endif
+	@mkdir -p $(BUILD_DIR) $(OUTPUT_DIR) 2>$(NULL_DEV) || true
 
 # ── Compilar C ──────────────────────────────────────────
 $(BUILD_DIR)/main.o: $(C_SRCS)
