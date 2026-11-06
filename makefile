@@ -18,9 +18,11 @@
 #
 # Variables sobrescribibles:
 #   make CC65_HOME=/opt/cc65        (Linux)
-#   make CC65_HOME=D:/cc65          (Windows, barras normales)
-#   make CC65_HOME=C:/cc65 SHELL=cmd.exe   (Windows con make de MSYS2/Git Bash)
+#   make CC65_HOME=D:/cc65          (Windows, con barras normales)
 #   make VICE_HOME=C:/vice          (para 'make run')
+#
+# En Windows, make detecta solo si corre bajo Git Bash/MSYS2/Cygwin y usa
+# cmd.exe para las recetas. Ya no hace falta pasar SHELL=cmd.exe a mano.
 # ============================================================================
 
 # ============================================================
@@ -34,6 +36,17 @@ ifeq ($(OS),Windows_NT)
   RM_DIR    = rmdir /s /q
   RM_FILE   = del /q
   NULL_DEV  = nul
+  # Si make se ejecuta desde Git Bash / MSYS2 / Cygwin, su shell por defecto
+  # es /bin/sh y los comandos de Windows (if not exist, rmdir...) fallan con
+  # "syntax error: unexpected end of file from `if' command". En ese caso se
+  # fuerzan las recetas a cmd.exe. Un SHELL pasado por linea de comandos
+  # (make SHELL=...) tiene prioridad y evita esta deteccion.
+  ifeq ($(origin SHELL),default)
+    ifneq (,$(or $(MSYSTEM),$(findstring msys,$(shell uname -s 2>$(NULL_DEV))),$(findstring cygwin,$(shell uname -s 2>$(NULL_DEV))),$(wildcard /usr/bin/sh)))
+      SHELL = cmd.exe
+    endif
+  endif
+  with_cmd := $(if $(filter %cmd.exe,$(SHELL)),1,)
 else
   # ── Linux / Unix / MinGW-MSYS ───────────────────────────
   RM_DIR    = rm -rf
@@ -153,11 +166,13 @@ run: prg
 	$(if $(VICE_HOME),$(VICE_HOME)/x64sc,x64sc) -autostart $(PROGRAM_PRG)
 
 # ── Tamaño del binario ──────────────────────────────────
+# 'for %%I' solo existe en cmd.exe; with_cmd nos dice si las recetas corren
+# bajo cmd (Windows nativo) o bajo sh (Linux / Git Bash / MSYS2).
 info:
 	@echo ========================================
 	@echo Informacion del programa
 	@echo ========================================
-ifeq ($(OS),Windows_NT)
+ifeq ($(with_cmd),1)
 	@if exist $(PROGRAM) (for %%I in ($(PROGRAM)) do @echo Tamano: %%~zI bytes) else @echo Error: Programa no compilado
 else
 	@if [ -f $(PROGRAM) ]; then echo "Tamano: $$(wc -c < $(PROGRAM)) bytes"; else echo "Error: Programa no compilado"; fi
@@ -165,11 +180,7 @@ endif
 
 # ── Mapa de memoria ────────────────────────────────────
 map:
-ifeq ($(OS),Windows_NT)
-	@if exist $(MAP_FILE) (type $(MAP_FILE)) else @echo Error: Mapa no encontrado. Compilar primero.
-else
-	@if [ -f $(MAP_FILE) ]; then cat $(MAP_FILE); else echo "Error: Mapa no encontrado. Compilar primero."; fi
-endif
+	@cat $(MAP_FILE) 2>$(NULL_DEV) || echo Error: Mapa no encontrado. Compilar primero.
 
 # ── Limpieza ────────────────────────────────────────────
 clean:
