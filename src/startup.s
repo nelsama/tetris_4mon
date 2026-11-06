@@ -10,7 +10,7 @@
 
 .import _main
 .import __BSS_RUN__, __BSS_SIZE__
-.importzp sp
+.importzp c_sp
 
 ; Variables temporales en zero page
 .segment "ZEROPAGE"
@@ -30,11 +30,11 @@ _init:
     txs
     
     ; Inicializar stack pointer de CC65 (software stack)
-    ; Usar $3DFF como tope del stack
-    lda #<$3DFF
-    sta sp
-    lda #>$3DFF
-    sta sp+1
+    ; Usar $3FFD como tope del stack (ver config/programa.cfg)
+    lda #<$3FFD
+    sta c_sp
+    lda #>$3FFD
+    sta c_sp+1
     
     ; Inicializar BSS a ceros
     jsr zerobss

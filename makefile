@@ -8,7 +8,9 @@
 #   Windows: descargar de GitHub releases y ajustar CC65_HOME si es necesario
 #
 # Uso:
-#   make          - Compilar el programa
+#   make          - Compilar el programa (output/tetris.bin)
+#   make prg      - Igual, y generar output/tetris.prg (con cabecera $0800)
+#   make run      - Generar el PRG y ejecutarlo en VICE (x64sc)
 #   make clean    - Limpiar archivos generados
 #   make info     - Ver tamaño del binario
 #   make map      - Ver mapa de memoria
@@ -16,7 +18,9 @@
 #
 # Variables sobrescribibles:
 #   make CC65_HOME=/opt/cc65        (Linux)
-#   make CC65_HOME=C:\cc65          (Windows)
+#   make CC65_HOME=D:/cc65          (Windows, barras normales)
+#   make CC65_HOME=C:/cc65 SHELL=cmd.exe   (Windows con make de MSYS2/Git Bash)
+#   make VICE_HOME=C:/vice          (para 'make run')
 # ============================================================================
 
 # ============================================================
@@ -71,8 +75,10 @@ OUTPUT_DIR = output
 # Archivos de entrada / salida
 # ============================================================
 PROGRAM    = $(OUTPUT_DIR)/tetris.bin
+PROGRAM_PRG = $(OUTPUT_DIR)/tetris.prg
 MAP_FILE   = $(OUTPUT_DIR)/tetris.map
 LD_CFG     = $(CFG_DIR)/programa.cfg
+# Cabecera PRG del C64: 2 bytes little-endian con la direccion de carga ($0800)
 
 C_SRCS     = $(SRC_DIR)/main.c
 ASM_SRCS   = $(SRC_DIR)/startup.s
@@ -88,10 +94,16 @@ CFLAGS     = -t none -O --cpu 6502 -I $(SRC_DIR) -I $(INC_DIR)
 ASFLAGS    = -t none --cpu 6502
 LDFLAGS    = -C $(LD_CFG) -m $(MAP_FILE) -L $(CC65_LIB)
 
+ifeq ($(OS),Windows_NT)
+  PRG_TOOL = powershell -NoProfile -Command "[IO.File]::WriteAllBytes('$(PROGRAM_PRG)', ([byte[]](0x00,0x08) + [IO.File]::ReadAllBytes('$(PROGRAM)')))"
+else
+  PRG_TOOL = printf '\x00\x08' > $(PROGRAM_PRG) && cat $(PROGRAM) >> $(PROGRAM_PRG)
+endif
+
 # ============================================================
 # REGLAS PRINCIPALES
 # ============================================================
-.PHONY: all dirs clean info map help
+.PHONY: all dirs clean info map prg run help
 
 all: dirs $(PROGRAM)
 	@echo ========================================
@@ -128,6 +140,17 @@ $(PROGRAM): $(OBJS)
 # ============================================================
 # UTILIDADES
 # ============================================================
+
+# ── Version PRG (con cabecera de direccion de carga) ────
+# Genera tetris.prg = $00 $08 + tetris.bin
+prg: dirs $(PROGRAM)
+	$(PRG_TOOL)
+
+# ── Ejecutar en el emulador VICE (C64) ──────────────────
+# Requiere x64sc.exe en el PATH (o indicar VICE_HOME)
+VICE_HOME ?=
+run: prg
+	$(if $(VICE_HOME),$(VICE_HOME)/x64sc,x64sc) -autostart $(PROGRAM_PRG)
 
 # ── Tamaño del binario ──────────────────────────────────
 info:

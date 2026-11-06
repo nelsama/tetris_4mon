@@ -1,12 +1,15 @@
 # Archivos compilados y de build
 build/
+output/
 *.o
-*.cfg
 *.map
 *.lbl
 *.bin
 *.hex
 *.sym
+
+# Configs generadas por el build (la del linker en config/ SI se versiona)
+build/*.cfg
 
 # Archivos de sistema y editores
 .DS_Store

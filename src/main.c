@@ -291,7 +291,9 @@ int main(void) {
     uint8_t y, x, k, cur, line_dirty;
     char c;
 
-    asm("cli");
+    /* Las interrupciones quedan deshabilitadas (sei en startup.s): el programa
+       no instala ningun manejador de IRQ, asi que habilitarlas solo provocaria
+       saltos al vector de la ROM que no esta preparado para atenderlas. */
     sid_init();
     init_random();
     
