@@ -105,6 +105,15 @@ El monitor lo cargará en `$0800` y lo ejecutará automáticamente.
 
 ### Controles
 
+#### Menú principal
+
+| Tecla | Acción |
+|---|---|
+| `P` / `Enter` / `Espacio` | Jugar |
+| `Q` / `ESC` | Salir con autoboot (equivale a `QB` en el monitor) |
+
+#### Durante el juego
+
 | Tecla | Acción |
 |---|---|
 | `A` / `←` | Mover izquierda |
@@ -113,8 +122,15 @@ El monitor lo cargará en `$0800` y lo ejecutará automáticamente.
 | `W` / `↑` | Rotar horario |
 | `Z` | Rotar antihorario |
 | `Espacio` | Hard drop |
-| `ESC` | Salir al monitor |
-| `R` / `E` | Reiniciar / salir (en Game Over) |
+| `ESC` | Salir con autoboot (equivale a `QB`) |
+| `R` / `Q` | Reiniciar / salir (en Game Over) |
+
+### Salida al monitor
+
+Al salir, el programa escribe `$C004 = 0` y hace `jmp ($FFFC)`: el monitor
+reinicia **con autoboot** y relee `BOOT.INI`, igual que el comando `QB`. Si
+`BOOT.INI` apunta a este juego, volverá a mostrarse el menú; si apunta a otro
+programa (un launcher, por ejemplo), se lanzará ese.
 
 ## 🧠 Mapa de memoria
 

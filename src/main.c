@@ -285,11 +285,42 @@ static uint8_t get_key(void) {
 }
 
 /* ==========================================================================
+   SALIDA AL MONITOR
+   ==========================================================================
+   El flag de usuario del FPGA ($C004 bit 0) decide si el monitor ejecuta
+   BOOT.INI al reiniciar. Es hardware fuera del dominio de reset, asi que
+   sobrevive al reinicio de la CPU. Hay que usar jmp ($FFFC) y no jmp $8000,
+   porque solo el vector RESET hace que el monitor evalue el flag recien
+   escrito.
+     $C004 bit 0 = 1 -> prompt del monitor (equivale a 'Q')
+     $C004 bit 0 = 0 -> monitor + BOOT.INI    (equivale a 'QB')
+   ========================================================================== */
+#define SYSFLAGS (*(volatile uint8_t *)0xC004)
+
+static void sid_off(void);
+
+/* Vuelve al monitor con autoboot (QB). No retorna. */
+static void exit_with_autoboot(void) {
+    uint8_t guard = 0;
+
+    sid_off();
+    rom_uart_puts("\033[?25h\033[0m\033[2J");
+
+    /* Descartar teclas pendientes: si no, el monitor o el launcher que
+       arranca tras el reset las consumiria y se saldria solo. */
+    while (rom_uart_rx_ready() && guard < 64) { (void)rom_uart_getc(); guard++; }
+
+    SYSFLAGS = 0x00;
+    asm("jmp ($FFFC)");
+}
+
+/* ==========================================================================
    MAIN
    ========================================================================== */
 int main(void) {
     uint8_t y, x, k, cur, line_dirty;
     char c;
+    uint8_t menu_sel;
 
     /* Las interrupciones quedan deshabilitadas (sei en startup.s): el programa
        no instala ningun manejador de IRQ, asi que habilitarlas solo provocaria
@@ -299,9 +330,22 @@ int main(void) {
     
     drop_delay = 25; frame_cnt = 0; esc_state = 0;
     
+    /* ---- Banner / menu principal -------------------------------------- */
     rom_uart_puts("\033[?25l\033[2J\033[H");
-    rom_uart_puts("  TETRIS 6502 + SID\r\n\r\n  WASD/Arrows: Move & Rotate\r\n  Space: Hard Drop\r\n  Z: Rotate CCW\r\n  ESC: Exit\r\n\r\n  Press any key...");
-    while (!rom_uart_rx_ready()); rom_uart_getc();
+    rom_uart_puts("\033[1m  TETRIS 6502 + SID\033[0m\r\n\r\n");
+    rom_uart_puts("  [P] Play\r\n  [Q] Quit (autoboot)\r\n\r\n");
+    rom_uart_puts("  WASD/Arrows: Move & Rotate\r\n  Space: Hard Drop\r\n  Z: Rotate CCW\r\n  ESC: Quit\r\n\r\n");
+
+    menu_sel = 0;
+    for (;;) {
+        if (!rom_uart_rx_ready()) continue;
+        c = rom_uart_getc();
+        if (c == 'p' || c == 'P' || c == '\r' || c == '\n' || c == ' ') { menu_sel = 1; break; }
+        if (c == 'q' || c == 'Q' || c == 0x1B) { menu_sel = 2; break; }
+    }
+
+    if (menu_sel == 2) exit_with_autoboot();   /* no retorna */
+
     rom_uart_puts("\033[2J\033[H");
     sid_play_jingle();
 
@@ -310,7 +354,7 @@ reset:
     frame_cnt = 0; force_refresh = 0;
     prev_score = 0; prev_lines = 0; prev_level = 0;
     for (y = 0; y < H; y++) for (x = 0; x < W; x++) { board[y][x] = 0; prev[y][x] = 0xFF; }
-    if (!spawn()) return 0;
+    if (!spawn()) { game_over = 1; }
 
     while (!game_over) {
         k = get_key();
@@ -321,7 +365,7 @@ reset:
             else if (k == 3 || k == 'd' || k == 'D') { if (can_place(ptype, prot, px + 1, py)) px++; }
             else if (k == 4 || k == 'a' || k == 'A') { if (can_place(ptype, prot, px - 1, py)) px--; }
             else if (k == ' ') hard_drop();
-            else if (k == 0x1B) { rom_uart_puts("\033[?25h\033[2J"); return 0; }
+            else if (k == 0x1B) exit_with_autoboot();   /* no retorna */
         }
 
         frame_cnt++;
@@ -368,7 +412,7 @@ reset:
 
     sid_sfx(2);
     uart_ansi_cursor(H / 2, 28); rom_uart_puts("\033[31;1m** GAME OVER **\033[0m");
-    uart_ansi_cursor(H / 2 + 2, 28); rom_uart_puts("[R]estart  [E]xit");
+    uart_ansi_cursor(H / 2 + 2, 28); rom_uart_puts("[R]estart  [Q]uit");
     while (1) {
         if (!rom_uart_rx_ready()) continue;
         c = rom_uart_getc();
@@ -377,6 +421,6 @@ reset:
             rom_uart_puts("\033[2J\033[H"); 
             goto reset; 
         }
-        if (c == 'e' || c == 'E' || c == 0x1B) { sid_off(); rom_uart_puts("\033[?25h\033[2J"); return 0; }
+        if (c == 'e' || c == 'E' || c == 'q' || c == 'Q' || c == 0x1B) exit_with_autoboot();   /* no retorna */
     }
 }
